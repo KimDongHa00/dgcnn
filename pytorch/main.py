@@ -70,6 +70,7 @@ def train(args, io):
     criterion = cal_loss
 
     best_test_acc = 0
+    '''
     for epoch in range(args.epochs):
         scheduler.step()
         ####################
@@ -103,6 +104,46 @@ def train(args, io):
                                                                                  metrics.balanced_accuracy_score(
                                                                                      train_true, train_pred))
         io.cprint(outstr)
+        '''
+    for epoch in range(args.epochs):
+        ####################
+        # Train
+        ####################
+        train_loss = 0.0
+        count = 0.0
+        model.train()
+        train_pred = []
+        train_true = []
+        for data, label in train_loader:
+            data, label = data.to(device), label.to(device).squeeze()
+            data = data.permute(0, 2, 1)
+            batch_size = data.size()[0]
+            opt.zero_grad()
+            logits = model(data)
+            loss = criterion(logits, label)
+            loss.backward()
+            opt.step()         # optimizer step을 먼저 실행
+
+            preds = logits.max(dim=1)[1]
+            count += batch_size
+            train_loss += loss.item() * batch_size
+            train_true.append(label.cpu().numpy())
+            train_pred.append(preds.detach().cpu().numpy())
+    
+        # Epoch마다 결과를 계산하고 출력
+        train_true = np.concatenate(train_true)
+        train_pred = np.concatenate(train_pred)
+        outstr = 'Train %d, loss: %.6f, train acc: %.6f, train avg acc: %.6f' % (epoch,
+                                                                                 train_loss*1.0/count,
+                                                                                 metrics.accuracy_score(
+                                                                                     train_true, train_pred),
+                                                                                 metrics.balanced_accuracy_score(
+                                                                                     train_true, train_pred))
+        io.cprint(outstr)
+
+        # 각 epoch의 마지막에 scheduler step을 실행
+        scheduler.step()
+
 
         ####################
         # Test
