@@ -23,6 +23,8 @@ from torch.utils.data import DataLoader
 from util import cal_loss, IOStream
 import sklearn.metrics as metrics
 
+import time
+
 
 def _init_():
     if not os.path.exists('checkpoints'):
@@ -168,6 +170,7 @@ def test(args, io):
 
 
 if __name__ == "__main__":
+    total_start_time = time.time() #전체 실행 시작 시간
     # Training settings
     parser = argparse.ArgumentParser(description='Point Cloud Recognition')
     parser.add_argument('--exp_name', type=str, default='exp', metavar='N',
@@ -225,3 +228,13 @@ if __name__ == "__main__":
         train(args, io)
     else:
         test(args, io)
+
+    #시간 측정 코드 추가
+    if not args.eval:
+        train(args, io)
+    else:
+        test(args, io)
+    
+    total_end_time = time.time()  # 전체 실행 종료 시간
+    total_elapsed_time = total_end_time - total_start_time
+    io.cprint(f"Total Runtime: {total_elapsed_time / 60:.2f} minutes")  # 전체 실행 시간 출력
