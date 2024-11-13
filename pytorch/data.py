@@ -28,7 +28,7 @@ def download():
         os.system('mv %s %s' % (zipfile[:-4], DATA_DIR))
         os.system('rm %s' % (zipfile))
 
-
+'''
 def load_data(partition):
     download()
     BASE_DIR = os.path.dirname(os.path.abspath(__file__))
@@ -42,6 +42,30 @@ def load_data(partition):
         f.close()
         all_data.append(data)
         all_label.append(label)
+    all_data = np.concatenate(all_data, axis=0)
+    all_label = np.concatenate(all_label, axis=0)
+    return all_data, all_label
+
+import glob
+import os
+import h5py
+import numpy as np'''
+
+def load_data(partition):
+    BASE_DIR = os.path.dirname(os.path.abspath(__file__))
+    DATA_DIR = os.path.join(BASE_DIR, 'data')
+    all_data = []
+    all_label = []
+    # 파일 검색 패턴을 현재 파일 이름에 맞게 변경
+    file_pattern = 'train*.h5' if partition == 'train' else 'test*.h5'
+    for h5_name in glob.glob(os.path.join(DATA_DIR, 'modelnet40_ply_hdf5_2048', file_pattern)):
+        with h5py.File(h5_name, 'r') as f:
+            data = f['data'][:].astype('float32')
+            label = f['label'][:].astype('int64')
+            all_data.append(data)
+            all_label.append(label)
+    if not all_data:
+        raise FileNotFoundError(f"No files found for pattern {file_pattern} in directory {DATA_DIR}/modelnet40_ply_hdf5_2048")
     all_data = np.concatenate(all_data, axis=0)
     all_label = np.concatenate(all_label, axis=0)
     return all_data, all_label
