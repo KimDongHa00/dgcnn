@@ -271,10 +271,6 @@ if __name__ == "__main__":
         test(args, io)
 
     #시간 측정 코드 추가
-    if not args.eval:
-        train(args, io)
-    else:
-        test(args, io)
     
     total_end_time = time.time()  # 전체 실행 종료 시간
     total_elapsed_time = total_end_time - total_start_time
