@@ -23,8 +23,6 @@ from torch.utils.data import DataLoader
 from util import cal_loss, IOStream
 import sklearn.metrics as metrics
 
-import time
-
 
 def _init_():
     if not os.path.exists('checkpoints'):
@@ -39,9 +37,9 @@ def _init_():
     os.system('cp data.py checkpoints' + '/' + args.exp_name + '/' + 'data.py.backup')
 
 def train(args, io):
-    train_loader = DataLoader(ModelNet40(partition='train', num_points=args.num_points), num_workers=2,
+    train_loader = DataLoader(ModelNet40(partition='train', num_points=args.num_points, datamodel=args.datamodel ), num_workers=8,
                               batch_size=args.batch_size, shuffle=True, drop_last=True)
-    test_loader = DataLoader(ModelNet40(partition='test', num_points=args.num_points), num_workers=2,
+    test_loader = DataLoader(ModelNet40(partition='test', num_points=args.num_points, datamodel=args.datamodel), num_workers=8,
                              batch_size=args.test_batch_size, shuffle=True, drop_last=False)
 
     device = torch.device("cuda" if args.cuda else "cpu")
@@ -50,7 +48,17 @@ def train(args, io):
     if args.model == 'pointnet':
         model = PointNet(args).to(device)
     elif args.model == 'dgcnn':
-        model = DGCNN(args).to(device)
+        datamodel_dims = {
+            'xyz': 3,
+            'full': 59,
+            'Op': 4,   # XYZ + Opacity (3 + 1)
+            'Sh': 51,  # XYZ + SH Coeffs (3 + 48)
+            'SR': 10,  # XYZ + Scale + Rotation (3 + 3 + 4)
+            'ECSH': 11 # XYZ + Opacity + Scale + Rotation (3 + 1 + 3 + 4)
+        }	  
+        input_dim = datamodel_dims.get(args.datamodel, 3)  # 기본값 3(XYZ)
+        model = DGCNN(args, input_dim=input_dim).to(device)
+
     else:
         raise Exception("Not implemented")
     print(str(model))
@@ -70,7 +78,6 @@ def train(args, io):
     criterion = cal_loss
 
     best_test_acc = 0
-    '''
     for epoch in range(args.epochs):
         scheduler.step()
         ####################
@@ -104,46 +111,6 @@ def train(args, io):
                                                                                  metrics.balanced_accuracy_score(
                                                                                      train_true, train_pred))
         io.cprint(outstr)
-        '''
-    for epoch in range(args.epochs):
-        ####################
-        # Train
-        ####################
-        train_loss = 0.0
-        count = 0.0
-        model.train()
-        train_pred = []
-        train_true = []
-        for data, label in train_loader:
-            data, label = data.to(device), label.to(device).squeeze()
-            data = data.permute(0, 2, 1)
-            batch_size = data.size()[0]
-            opt.zero_grad()
-            logits = model(data)
-            loss = criterion(logits, label)
-            loss.backward()
-            opt.step()         # optimizer step을 먼저 실행
-
-            preds = logits.max(dim=1)[1]
-            count += batch_size
-            train_loss += loss.item() * batch_size
-            train_true.append(label.cpu().numpy())
-            train_pred.append(preds.detach().cpu().numpy())
-    
-        # Epoch마다 결과를 계산하고 출력
-        train_true = np.concatenate(train_true)
-        train_pred = np.concatenate(train_pred)
-        outstr = 'Train %d, loss: %.6f, train acc: %.6f, train avg acc: %.6f' % (epoch,
-                                                                                 train_loss*1.0/count,
-                                                                                 metrics.accuracy_score(
-                                                                                     train_true, train_pred),
-                                                                                 metrics.balanced_accuracy_score(
-                                                                                     train_true, train_pred))
-        io.cprint(outstr)
-
-        # 각 epoch의 마지막에 scheduler step을 실행
-        scheduler.step()
-
 
         ####################
         # Test
@@ -179,13 +146,25 @@ def train(args, io):
 
 
 def test(args, io):
-    test_loader = DataLoader(ModelNet40(partition='test', num_points=args.num_points),
+    test_loader = DataLoader(ModelNet40(partition='test', num_points=args.num_points, datamodel=args.datamodel),
                              batch_size=args.test_batch_size, shuffle=True, drop_last=False)
 
     device = torch.device("cuda" if args.cuda else "cpu")
 
-    #Try to load models
-    model = DGCNN(args).to(device)
+    # datamodel에 따라 input_dim 설정 추가 (train과 동일하게)
+    datamodel_dims = {
+        'xyz': 3,
+        'full': 59,
+        'Op': 4,   # XYZ + Opacity (3 + 1)
+        'Sh': 51,  # XYZ + SH Coeffs (3 + 48)
+        'SR': 10,  # XYZ + Scale + Rotation (3 + 3 + 4)
+        'ECSH': 11 # XYZ + Opacity + Scale + Rotation (3 + 1 + 3 + 4)
+    }
+    input_dim = datamodel_dims.get(args.datamodel, 3)  # 기본값 3(XYZ)
+    
+    # input_dim을 DGCNN에 전달
+    model = DGCNN(args, input_dim=input_dim).to(device)
+    
     model = nn.DataParallel(model)
     model.load_state_dict(torch.load(args.model_path))
     model = model.eval()
@@ -211,7 +190,6 @@ def test(args, io):
 
 
 if __name__ == "__main__":
-    total_start_time = time.time() #전체 실행 시작 시간
     # Training settings
     parser = argparse.ArgumentParser(description='Point Cloud Recognition')
     parser.add_argument('--exp_name', type=str, default='exp', metavar='N',
@@ -249,6 +227,11 @@ if __name__ == "__main__":
                         help='Num of nearest neighbors to use')
     parser.add_argument('--model_path', type=str, default='', metavar='N',
                         help='Pretrained model path')
+    #추가한 부분: datamodel 옵션 추가                  
+    parser.add_argument('--datamodel', type=str, default='xyz', 
+                    choices=['xyz', 'full', 'Op', 'Sh', 'SR', 'ECSH'],
+                    help='Data model mode: xyz, full, Op (Opacity), Sh (SH Coeffs), SR (Scale+Rotation), ECSH (Opacity+Scale+Rotation)')
+                    
     args = parser.parse_args()
 
     _init_()
@@ -269,9 +252,3 @@ if __name__ == "__main__":
         train(args, io)
     else:
         test(args, io)
-
-    #시간 측정 코드 추가
-    
-    total_end_time = time.time()  # 전체 실행 종료 시간
-    total_elapsed_time = total_end_time - total_start_time
-    io.cprint(f"Total Runtime: {total_elapsed_time / 60:.2f} minutes")  # 전체 실행 시간 출력
